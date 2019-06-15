@@ -1,0 +1,997 @@
+---
+title: "Employee Attrition & Performance"
+author: "Sonam Bhadauria"
+date: "6/6/2019"
+output:
+  pdf_document: default
+---
+
+## Introduction
+
+We are working on a dataset "HR-Employee-Attrition"" from Kaggle.This is a fictional data set created by IBM data scientists. (Source - https://www.kaggle.com/pavansubhasht/ibm-hr-analytics-attrition-dataset)
+
+Our objective here is to understand what factors contributes most to employees turnover and to create a model that can predict if a certain employee will leave the company or not.
+
+Overall, the implementation of this model could allow management to create better decision-making actions.
+
+```{r message=FALSE}
+
+URL <- tempfile()
+download.file("https://raw.githubusercontent.com/sonam-bhadauria/HarvardX-CYO/master/HR-Employee-Attrition.csv", URL)
+
+library(data.table)
+HR_data <- read.csv(URL,sep = ',',header = TRUE,stringsAsFactors = TRUE,check.names = TRUE)
+HR_data <- data.table(HR_data)
+
+```
+
+
+```{r include=FALSE}
+
+library(dplyr)
+glimpse(HR_data)
+
+```
+
+We can check the data summary as given below
+
+```{r}
+summary(HR_data)
+```
+## Observations and Data preparation
+
+1) Data has 1,470 rows with 35 columns(variables)
+
+2) Class Label is Attrition with 1232 'NO' and 237 'Yes' that shows the unbalance class        label. we have to pay attention to the unbalance class algorithm problems!
+
+3) Some of variables are related to the years of working wich can be a good candidate for      feature generation. Some of variable are related to personal issues like WorkLifeBalance,    RelationshipSatisfaction, JobSatisfaction,EnvironmentSatisfaction etc.
+
+4) There are some variables that are related to the income like MonthlyIncome,                 PercentSalaryHike, etc.
+
+5) More and more, we have to envestigate that, how the company objective factors influence     in attition employees, and what kind of working enviroment most will cause employees        attrition.
+
+6) We checked our data for Missing values. Fortunately, we dont have any missing values as     shown below
+
+
+```{r}
+
+apply(is.na(HR_data), 2, sum)
+```
+
+
+7) Also, We have removed non value attributes.These variables can not play significant role because they are same for all records.
+
+8) EmployeeNumber is a variable for identifying the specific employee.If we have more information about employee and the structure of the employee number, then we can extract some new features. But now it is not possible and that is why we have removed it from our data set.
+
+9) Employee Count is equal 1 for all observation which can not generate useful value for this sample data. Maybe for the other sample of data will be with different values that should be considered for builiding the model in the future for other sets of data. In this analysis, we will remove it.
+
+10) Over 18 is equal to 'Y', which means employee is not less than 18 years old. this attribute should be considered for the future, maybe by changing the ruls of emploement, young people under 18 can also working in companies. Here, according to the data set, we will remove it.
+
+11) Standard Hours is equal 80 for all observation. the decision for this attribute is same to Over18 and Employee Count. BusinessTravel, Department, EducationField, Gender, jobRole, MaritalStatus and OverTime are categorical data and other variabels are continues.
+
+```{r}
+
+HR_data$EmployeeNumber <- NULL
+HR_data$EmployeeCount <- NULL
+HR_data$Over18 <- NULL
+HR_data$StandardHours <- NULL
+```
+
+12) After removing Non value data attributes, now our Dataset has 1470 Rows and 31 Columns.
+Also, we checked for any duplicate records
+
+```{r}
+sum(is.na(duplicated(HR_data)))
+
+```
+
+13) There are some attributes that are categorical, but some are integer. We changed them into categorical. Also, we do not need any dummy variable creation, where some machine learning algorithms like RF, XGBoost etc. can use categorical variables.
+
+14) For other algorithms like NN we have to change categorical variable more than two level to dummy variable Variable with twol level (Binary) can be change to number very easy.
+
+```{r}
+
+HR_data$Education <- as.factor(HR_data$Education)
+HR_data$EnvironmentSatisfaction <- as.factor(HR_data$EnvironmentSatisfaction)
+HR_data$JobInvolvement <- as.factor(HR_data$JobInvolvement)
+HR_data$JobLevel <- as.factor(HR_data$JobLevel)
+HR_data$JobSatisfaction <- as.factor(HR_data$JobSatisfaction)
+HR_data$PerformanceRating <- as.factor(HR_data$PerformanceRating)
+HR_data$RelationshipSatisfaction <- as.factor(HR_data$RelationshipSatisfaction)
+HR_data$StockOptionLevel <- as.factor(HR_data$StockOptionLevel)
+HR_data$WorkLifeBalance <- as.factor(HR_data$WorkLifeBalance)
+
+```
+
+## Data Visualization
+
+We are done with data preparation, now we are going ahead & analyze the variables through visualization. We are going to check what all variables really contributes in the attrition. So, going forward we will focus on those variables only while building our model.
+
+
+```{r}
+summary(HR_data)
+```
+
+## Visualization of Attrition
+
+ 
+```{r echo=FALSE, warning=FALSE }
+
+#Visualizing the attrition
+library(ggplot2)
+HR_data %>%
+  group_by(Attrition) %>%
+  tally() %>%
+  ggplot(aes(x = Attrition, y = n,fill=Attrition)) +
+  geom_bar(stat = "identity") +
+  theme_minimal()+
+  labs(x="Attrition", y="Count of Attriation")+
+  ggtitle("Attrition")+
+  geom_text(aes(label = n), vjust = -0.5, position = position_dodge(0.9))
+
+```
+
+
+As we can see here, 237/1233=0.19 % of the data label shows the "Yes" in Attrition. This problem should be fixed during the process because unbalanced dataset will bias the prediction model towards the more common class (here is 'NO'). There are different approaches for dealing with unbalanced data in machine learning like using more data (here is not possible), Resampling , changing the machine performance metric, using various algorithms etc.
+
+## Visualizing age distribution in a histogram
+
+```{r echo=FALSE}
+ggplot(data=HR_data, aes(HR_data$Age)) + 
+  geom_histogram(breaks=seq(20, 50, by=2), 
+                 col="red", 
+                 aes(fill=..count..))+
+  labs(x="Age", y="Count")+
+  scale_fill_gradient("Count", low="green", high="red")
+```
+
+
+As we can see above, the majority of employees are between 28-36 years. 34-36 years old are very popolar.
+
+
+## Attrition based on business travel
+
+```{r echo=FALSE}
+HR_data %>%
+  ggplot(aes(x = BusinessTravel, group = Attrition)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), 
+           stat="count", 
+           alpha = 0.7) +
+  geom_text(aes(label = scales::percent(..prop..), y = ..prop.. ), 
+            stat= "count", 
+            vjust = 2) +
+  labs(y = "Percentage", fill= "business Travel") +
+  facet_grid(~Attrition) +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + 
+  ggtitle("Attrition")
+```
+
+Here is the distribution of the data according to the Business Tralvel situation. More than 70% of employees travel rarely where just 10 % of them has no travel. People who travel frequently tend to have more attrition
+
+
+## Attrition by Gender
+
+```{r echo=FALSE}
+HR_data %>%
+  ggplot(aes(x = Gender, group = Attrition)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), 
+           stat="count", 
+           alpha = 0.7) +
+  geom_text(aes(label = scales::percent(..prop..), y = ..prop.. ), 
+            stat= "count", 
+            vjust = -.5) +
+  labs(y = "Percentage", fill= "Gender") +
+  facet_grid(~Attrition) +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + 
+  ggtitle("Attrition")
+
+```
+
+There is no discernible observation. We can not really predict attrition based on this variable.
+
+## Attrition by marital status
+
+```{r echo=FALSE}
+HR_data %>%
+  ggplot(aes(x = MaritalStatus, group = Attrition)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), 
+           stat="count", 
+           alpha = 0.7) +
+  geom_text(aes(label = scales::percent(..prop..), y = ..prop.. ), 
+            stat= "count", 
+            vjust = -.5) +
+  labs(y = "Percentage", fill= "MaritalStatus") +
+  facet_grid(~Attrition) +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + 
+  ggtitle("Attrition")
+
+```
+
+We can infer through above plot that the people who are single tend to have highest attrition and people who are married tend to have the least chances.
+
+## Attrition by Monthly salary
+
+```{r echo=FALSE}
+HR_data %>%
+  ggplot(mapping = aes(x = MonthlyIncome)) + 
+  geom_histogram(aes(fill = Attrition), bins=20)+
+  labs(x="Monthlt Income", y="Number Attriation")+
+  ggtitle("Attrition in regards to Monthly Income")
+
+```
+
+We can notice that the maximum attrition is with the people under 5000.
+
+## Attrition based on Work Life Balance
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(gridExtra)
+g1<-HR_data %>%
+  ggplot(aes(x = WorkLifeBalance, group = Attrition)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), 
+           stat="count", 
+           alpha = 0.7) +
+  geom_text(aes(label = scales::percent(..prop..), y = ..prop.. ), 
+            stat= "count", 
+            vjust = -.5) +
+  labs(y = "Percentage", fill= "WorkLifeBalance") +
+  facet_grid(~Attrition) +
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + 
+  ggtitle("Attrition")
+
+g2<- HR_data %>%
+  group_by(WorkLifeBalance, Attrition) %>%
+  tally() %>%
+  ggplot(aes(x = WorkLifeBalance, y = n,fill=Attrition)) +
+  geom_bar(stat = "identity") +
+  theme_minimal()+
+  geom_text(aes(label = n), vjust = -0.5, position = position_dodge(0.9))+
+  labs(x="  Work Life Balance", y="Number Attriation")+
+  ggtitle("Attrition in regards to  Work Life Balance")
+grid.arrange(g1,g2)
+
+
+```
+
+WorkLifeBalance (categorical) - 1 'Bad' , 2 'Good' , 3 'Better' , 4 'Best'
+
+
+# Analysis Process
+
+## 1 Using Random Forest 
+
+Splitting data into train & test sets
+
+```{r echo=FALSE}
+# Splitting into train test
+rfData <- HR_data
+set.seed(123)
+indexes = sample(1:nrow(rfData), size=0.8*nrow(rfData))
+RFRaw.train.Data <- rfData[indexes,]
+RFRaw.test.Data <- rfData[-indexes,]
+```
+
+Building the model
+
+```{r include=FALSE}
+library(randomForest)
+```
+
+```{r echo=FALSE}
+Raw.rf.model <- randomForest(Attrition~.,RFRaw.train.Data, importance=TRUE,ntree=1000)
+varImpPlot(Raw.rf.model)
+
+```
+
+As we can see here OverTime, Monthly Income , Age, Total Working Years and Job Role are the top 5 contributors.
+
+Lets check the accuracy below
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+library(caret)
+Raw.rf.prd <- predict(Raw.rf.model, newdata = RFRaw.test.Data)
+confusionMatrix(RFRaw.test.Data$Attrition, Raw.rf.prd)
+
+```
+
+AUC (Area under Curve)
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(pROC)
+plot.roc(as.numeric(RFRaw.test.Data$Attrition), as.numeric(Raw.rf.prd),lwd=2, type="b",print.auc=TRUE,col ="blue")
+
+```
+
+Our results shows good accuracy however the AUC is not very good.
+
+Lets try & find methods to improve the accuracy & AUC.
+
+
+## Feature Engineering
+
+Now we will do some data wrapping here to make our results better:
+
+1) Making age group 18-24 as Young, 25-54 as Middle  and > 54 as Senior
+
+```{r echo=FALSE}
+HR_data$AgeGroup <- as.factor(
+  ifelse(HR_data$Age<=24,"Young", ifelse(
+    HR_data$Age<=54,"Middle","Senior"
+  ))
+)
+table(HR_data$AgeGroup)
+```
+
+As we can see here,the majority of employees are in Middle age group
+
+
+2) Creating a column "Total Satisfaction" which encompasses: Environment Satisfacton, Job Involvement, Job Satisfaction, Relationship and WorkLife Balance
+
+```{r echo=FALSE}
+HR_data$TotlaSatisfaction <- 
+  as.numeric(HR_data$EnvironmentSatisfaction)+
+  as.numeric(HR_data$JobInvolvement)+
+  as.numeric(HR_data$JobSatisfaction)+
+  as.numeric(HR_data$RelationshipSatisfaction)+
+  as.numeric(HR_data$WorkLifeBalance)
+
+summary(HR_data$TotlaSatisfaction)
+```
+
+3) Total years of education
+
+There are five Education level. 
+From high School to PhD (HighSchool=10 years, College=12 years, Bachelor=16 years, Master=18 years, PhD= 22 years)
+
+```{r echo=FALSE}
+HR_data$YearsEducation <-  ifelse(HR_data$Education==1,10,ifelse(HR_data$Education==2,12,
+                                                                 ifelse(HR_data$Education==3,16,ifelse(HR_data$Education==4,18,22))))  
+
+table(HR_data$YearsEducation)
+```
+
+We can notice that the majority of employees are 16 years education (i.e. Bachelors)
+
+4) Categorising monthly income into low-high groups, based on average income.
+
+```{r echo=FALSE}
+HR_data$IncomeLevel <- as.factor(
+  ifelse(HR_data$MonthlyIncome<ave(HR_data$MonthlyIncome),"Low","High")
+)
+table(HR_data$IncomeLevel)
+```
+
+## Correlation Matrix
+
+Let us see the Correlation Matrix of Data in order to find out the correlation between variables.
+
+```{r echo=FALSE}
+library(corrplot)
+corrplot(cor(sapply(HR_data,as.integer)),method = "pie")
+```
+
+We can see some of the variables are highly correlated. 
+For example -
+
+1) Joblevel and monthly income
+2) Education and YearsEducation
+
+They might cause multicollinearity problem in our data set. we have to decide to remove one of them from any group Now we will try again our dataset with new attributes using Random Forest again.
+
+
+## New Random Forest
+
+We are using random forest using the data with updated attributes now.
+
+```{r echo=FALSE}
+rfData <- HR_data
+set.seed(123)
+indexes = sample(1:nrow(rfData), size=0.8*nrow(rfData))
+RFtrain.Data <- rfData[indexes,]
+RFtest.Data <- rfData[-indexes,]
+
+rf.model <- randomForest(Attrition~.,RFtrain.Data, importance=TRUE,ntree=500)
+varImpPlot(rf.model)
+```
+
+
+Here we can see OverTime, TotalSatisfaction , MonthlyIncome, Age and JobRole are top five variables.
+
+## Confusion Matrix
+
+Lets check the accuracy using confusion Matrix
+
+```{r echo=FALSE}
+rf.prd <- predict(rf.model, newdata = RFtest.Data)
+confusionMatrix(RFtest.Data$Attrition, rf.prd)
+```
+
+## AUC
+
+```{r echo=FALSE}
+plot.roc (as.numeric(RFtest.Data$Attrition), as.numeric(rf.prd),lwd=2, type="b", print.auc=TRUE,col ="blue")
+```
+
+We can notice that our AUC has improved over the last RF with Raw Data
+
+## Using other Algorithms
+
+We will use some other algorithms also to build a better model
+
+## Support Vector Machine
+
+  
+```{r warning=FALSE}
+library(e1071)
+svmData <- HR_data
+set.seed(123)
+indexes = sample(1:nrow(svmData), size=0.8*nrow(svmData))
+SVMtrain.Data <- svmData[indexes,]
+SVMtest.Data <- svmData[-indexes,]
+tuned <- tune(svm,factor(Attrition)~.,data = SVMtrain.Data)
+svm.model <- svm(SVMtrain.Data$Attrition~., data=SVMtrain.Data
+                 ,type="C-classification", gamma=tuned$best.model$gamma
+                 ,cost=tuned$best.model$cost
+                 ,kernel="radial")
+svm.prd <- predict(svm.model,newdata=SVMtest.Data)
+confusionMatrix(svm.prd,SVMtest.Data$Attrition) 
+```
+
+```{r echo=FALSE}
+svm.plot <-plot.roc (as.numeric(SVMtest.Data$Attrition), as.numeric(svm.prd),lwd=2, type="b", print.auc=TRUE,col ="blue")
+```
+
+We can observe that our AUC(0.561) and Accuracy (0.8537) compared to RF is bad. There is no False Negative and a lot of false positives.
+
+
+## Extreme Gradient Boost
+
+To proceed with XG boost, we need to first tune the hyper parameters as below 
+
+```{r eval=FALSE, echo=TRUE}
+#Tuning XBGTree using Caret Package
+#Hyperparameters to tune:
+#nrounds: Number of trees, default: 100
+#max_depth: Maximum tree depth, default: 6
+#eta: Learning rate, default: 0.3
+#  gamma: Used for tuning of Regularization, default: 0
+#  colsample_bytree: Column sampling, default: 1
+#  min_child_weight: Minimum leaf weight, default: 1
+#  subsample: Row sampling, default: 1
+#  We’ll break down the tuning of these into five sections:
+#   
+#   Fixing learning rate eta and number of iterations nrounds
+#  M aximum depth max_depth and child weight min_child_weight
+#  Setting column colsample_bytree and row sampling subsample
+#  Experimenting with different gamma values
+#  Reducing the learning rate eta
+
+# set seed
+library(xgboost)
+set.seed(123)
+xgbData <- HR_data
+indexes <- sample(1:nrow(xgbData), size=0.8*nrow(xgbData))
+XGBtrain.Data <- xgbData[indexes,]
+XGBtest.Data <- xgbData[-indexes,]
+# note to start nrounds from 200, as smaller learning rates result in errors so
+# big with lower starting points that they'll mess the scales
+
+formula = Attrition~.
+nrounds <- 1000
+
+tune_grid <- expand.grid(
+  nrounds = seq(from = 200, to = nrounds, by = 50),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(2, 3, 4, 5, 6,8,10,15,20,25,30,35,40,50),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+tune_control <- caret::trainControl(
+  method = "cv", # cross-validation
+  number = 3, # with n folds 
+  classProbs = TRUE
+)
+
+xgb_tune <- caret::train(
+  formula,
+  data = XGBtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
+  method = "xgbTree"
+)
+predictions<-predict(xgb_tune,XGBtest.Data)
+confusionMatrix(predictions,XGBtest.Data$Attrition) #0.8639
+
+#output of best Tune is nrounds = 500 eta = 0.05
+
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+  ggplot(x) +
+    coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+    theme_bw()
+}
+
+tuneplot(xgb_tune)
+
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #700
+  eta = xgb_tune$bestTune$eta,
+  # max_depth = ifelse(xgb_tune$bestTune$max_depth == 2, #2
+  #                    c(xgb_tune$bestTune$max_depth:30),
+  #                    xgb_tune$bestTune$max_depth - 1:xgb_tune$bestTune$max_depth + 1),
+  
+  max_depth = c(1,2,3,5,10,15,20,25,30,35), #15
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1, 2, 3), #3
+  subsample = 1
+)
+
+xgb_tune2 <- caret::train(
+  formula,
+  data = XGBtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune2)
+predictions2<-predict(xgb_tune2,XGBtest.Data)
+confusionMatrix(predictions2,XGBtest.Data$Attrition) #0.8571
+
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #150
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1.0), #0.8
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0) #0.75
+)
+
+xgb_tune3 <- caret::train(
+  formula,
+  data = XGBtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune3)
+predictions3<-predict(xgb_tune3,XGBtest.Data)
+confusionMatrix(predictions3,XGBtest.Data$Attrition) #.8707
+
+
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #500
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0), #0.1
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune4 <- caret::train(
+  formula,
+  data = XGBtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = TRUE
+)
+ggplot(xgb_tune4)
+predictions4<-predict(xgb_tune4,XGBtest.Data)
+confusionMatrix(predictions4,XGBtest.Data$Attrition) #0.8707
+
+
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 100, to = 10000, by = 100), #300
+  eta = c(0.01, 0.015, 0.025, 0.05, 0.1), #0.025
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+xgb_tune5 <- caret::train(
+  formula,
+  data = XGBtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune5)
+predictions5<-predict(xgb_tune5,XGBtest.Data)
+confusionMatrix(predictions5,XGBtest.Data$Attrition) #0.8673
+```
+## XGBoost 
+
+We are using the best tunned hyperparameters (mentioned in above section) in below model.
+
+```{r warning=FALSE}
+library(xgboost)
+set.seed(123)
+xgbData <- HR_data
+indexes <- sample(1:nrow(xgbData), size=0.8*nrow(xgbData))
+XGBtrain.Data <- xgbData[indexes,]
+XGBtest.Data <- xgbData[-indexes,]
+
+formula = Attrition~.
+fitControl <- trainControl(method="cv", number = 3,classProbs = TRUE )
+
+xgbGrid <- expand.grid(nrounds = 500,
+                       max_depth = 15,
+                       eta = .05,
+                       gamma = 0.1,
+                       colsample_bytree = .8,
+                       min_child_weight = 3,
+                       subsample = 0.75
+)
+XGB.model <- train(formula, data = XGBtrain.Data,
+                   method = "xgbTree"
+                   ,trControl = fitControl
+                   , verbose=0
+                   , maximize=FALSE
+                   ,tuneGrid = xgbGrid
+)
+importance <- varImp(XGB.model)
+varImportance <- data.frame(Variables = row.names(importance[[1]]), 
+                            Importance = round(importance[[1]]$Overall,2))
+
+```
+
+We are now creating a rank variable based on importance of variables
+
+```{r}
+
+rankImportance <- varImportance %>%
+  mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+                           y = Importance)) +
+  geom_bar(stat='identity',colour="white", fill = "lightgreen") +
+  geom_text(aes(x = Variables, y = 1, label = Rank),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Variables', title = 'Relative Variable Importance') +
+  coord_flip() + 
+  theme_bw()
+```
+
+We can observe that Monthly Income, OverTime, Total Satisfaction, Total Working Years and Daily Rate are top 5.
+
+```{r message=FALSE}
+XGB.prd <- predict(XGB.model,XGBtest.Data)
+confusionMatrix(XGB.prd, XGBtest.Data$Attrition)
+XGB.plot <- plot.roc (as.numeric(XGBtest.Data$Attrition), as.numeric(XGB.prd),lwd=2, type="b", print.auc=TRUE,col ="blue")
+```
+
+We can see that accuracy is improved and AUC as well.
+
+
+## Unbalanaced Data Issue 
+
+We had observerd that our data is highly unbalanced (as shown in Attrition visualization graph).
+
+Lets solve the unbalanced data problem in the dataset using SMOTE method.
+
+```{r message=FALSE, warning=FALSE}
+library(DMwR)
+Classcount = table(HR_data$Attrition)
+# Over Sampling
+over = ( (0.6 * max(Classcount)) - min(Classcount) ) / min(Classcount) #2.121
+# Under Sampling
+under = (0.4 * max(Classcount)) / (min(Classcount) * over) # 0.98
+
+over = round(over, 1) * 100 #210
+under = round(under, 1) * 100 #100
+#Generate the balanced data set
+BalancedData = SMOTE(Attrition~., HR_data, perc.over = over, k = 5, perc.under = under)
+
+```
+
+Lets check the output of the Balancing
+
+```{r}
+
+BalancedData %>%
+  group_by(Attrition) %>%
+  tally() %>%
+  ggplot(aes(x = Attrition, y = n,fill=Attrition)) +
+  geom_bar(stat = "identity") +
+  theme_minimal()+
+  labs(x="Attrition", y="Count of Attriation")+
+  ggtitle("Attrition")+
+  geom_text(aes(label = n), vjust = -0.5, position = position_dodge(0.9))
+
+```
+
+## XG Boost with Balanced data
+
+Tunning hyperparameters again for the balanced data
+
+```{r eval=FALSE, echo=TRUE}
+# Tuning XBGTree using Caret Package
+#  Hyperparameters to tune:
+# nrounds: Number of trees, default: 100
+#  max_depth: Maximum tree depth, default: 6
+#  eta: Learning rate, default: 0.3
+#  gamma: Used for tuning of Regularization, default: 0
+#  colsample_bytree: Column sampling, default: 1
+#  min_child_weight: Minimum leaf weight, default: 1
+#  subsample: Row sampling, default: 1
+#  We’ll break down the tuning of these into five sections:
+#   
+#   Fixing learning rate eta and number of iterations nrounds
+#  M aximum depth max_depth and child weight min_child_weight
+#  Setting column colsample_bytree and row sampling subsample
+#  Experimenting with different gamma values
+#  Reducing the learning rate eta
+
+# set seed
+library(xgboost)
+set.seed(123)
+xgbData <-  BalancedData
+indexes = sample(1:nrow(xgbData), size=0.8*nrow(xgbData))
+BLtrain.Data <- xgbData[indexes,]
+BLtest.Data <- xgbData[-indexes,]
+# note to start nrounds from 200, as smaller learning rates result in errors so
+# big with lower starting points that they'll mess the scales
+
+
+formula = Attrition~.
+nrounds <- 1000
+
+tune_grid <- expand.grid(
+  nrounds = seq(from = 200, to = nrounds, by = 50), #750
+  eta = c(0.025, 0.05, 0.1, 0.3), #0.05
+  max_depth = c(2, 3, 4, 5, 6,8,10,15,20,25,30), #2 (2, 3, 4,)
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+tune_control <- caret::trainControl(
+  method = "cv", # cross-validation
+  number = 3, # with n folds 
+  classProbs = TRUE
+)
+
+xgb_tune <- caret::train(
+  formula,
+  data = BLtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
+  method = "xgbTree"
+)
+predictions<-predict(xgb_tune,BLtest.Data)
+confusionMatrix(predictions,BLtest.Data$Attrition) #0.9325
+ggplot(xgb_tune)
+
+
+#######2
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #1000
+  eta = xgb_tune$bestTune$eta,
+  
+  max_depth = c(1,2,3,5,10,15,20,25,30,35), #2
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1, 2, 3), #2
+  subsample = 1
+)
+
+xgb_tune2 <- caret::train(
+  formula,
+  data = BLtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune2)
+predictions2<-predict(xgb_tune2,BLtest.Data)
+confusionMatrix(predictions2,BLtest.Data$Attrition) #0.9325
+
+
+###########3
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #850
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1.0), #0.6
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0) #0.5
+)
+
+xgb_tune3 <- caret::train(
+  formula,
+  data = BLtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune3)
+predictions3<-predict(xgb_tune3,BLtest.Data)
+confusionMatrix(predictions3,BLtest.Data$Attrition) #0.8945
+
+################4
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50), #850
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0), #0.7
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune4 <- caret::train(
+  formula,
+  data = BLtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = TRUE
+)
+ggplot(xgb_tune4)
+predictions4<-predict(xgb_tune4,BLtest.Data)
+confusionMatrix(predictions4,BLtest.Data$Attrition) #0.8987
+
+
+
+#####################5
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 100, to = 10000, by = 100), #2000
+  eta = c(0.01, 0.015, 0.025, 0.05, 0.1), #0.015
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+xgb_tune5 <- caret::train(
+  formula,
+  data = BLtrain.Data,
+  trControl = tune_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+ggplot(xgb_tune5)
+predictions5<-predict(xgb_tune5,BLtest.Data)
+confusionMatrix(predictions5,BLtest.Data$Attrition) #0.8987
+```
+
+## XGBoost 
+
+We are using xgboost with balanced data. Also, using best tunned hyperparameters.
+
+```{r}
+
+set.seed(123)
+xgbData <- BalancedData
+indexes = sample(1:nrow(xgbData), size=0.8*nrow(xgbData))
+BLtrain.Data <- xgbData[indexes,]
+BLtest.Data <- xgbData[-indexes,]
+
+formula = Attrition~.
+fitControl <- trainControl(method="cv", number = 3,classProbs = TRUE )
+NewxgbGrid <- expand.grid(nrounds = 800,
+                          max_depth = 2,
+                          eta = .05,
+                          gamma = 0,
+                          colsample_bytree = 0.8,
+                          min_child_weight = 2,
+                          subsample = 0.5
+)
+
+# from tunegrid 5
+NewxgbGrid <- expand.grid(nrounds = 3000,
+                          max_depth = 5,
+                          eta = .05,
+                          gamma = 0.1,
+                          colsample_bytree = 0.6,
+                          min_child_weight = 2,
+                          subsample = 0.5
+)
+
+
+NewXGB.model = train(formula, data = BLtrain.Data,
+                     method = "xgbTree"
+                     ,trControl = fitControl
+                     , verbose=0
+                     , maximize=FALSE
+                     ,tuneGrid = NewxgbGrid
+                     ,na.action = na.pass
+)
+
+importance <- varImp(NewXGB.model)
+varImportance <- data.frame(Variables = row.names(importance[[1]]),
+                            Importance = round(importance[[1]]$Overall,2))
+```
+
+Creating a rank variable based on importance
+
+```{r}
+rankImportance <- varImportance %>%
+  mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+ggplot(rankImportance, aes(x = reorder(Variables, Importance),
+                           y = Importance)) +
+  geom_bar(stat='identity',colour="white", fill = "lightgreen") +
+  geom_text(aes(x = Variables, y = 1, label = Rank),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  labs(x = 'Variables', title = 'Relative Variable Importance') +
+  coord_flip() +
+  theme_bw()
+
+```
+
+
+We can observe that Total Satisfaction, Daily Rate, Monthly Income, Total Working Years and Years with Current Manager are top 5.
+
+Lets check the accuracy now.
+
+```{r echo=FALSE}
+
+NewXGB.prd <- predict(NewXGB.model,BLtest.Data)
+confusionMatrix(NewXGB.prd, BLtest.Data$Attrition)
+
+```
+
+AUC
+
+```{r echo=FALSE}
+NXGB.plot <- plot.roc (as.numeric(BLtest.Data$Attrition), as.numeric(NewXGB.prd),lwd=2, type="b", print.auc=TRUE, col ="green")
+```
+
+
+## Result
+
+```{r echo=FALSE, message=FALSE}
+par(mfrow=c(2,3))
+plot.roc (as.numeric(XGBtest.Data$Attrition), as.numeric(XGB.prd),main="XGBoost",lwd=2, type="b", print.auc=TRUE, col ="blue")
+plot.roc (as.numeric(BLtest.Data$Attrition), as.numeric(NewXGB.prd),main="New XGBoost",lwd=2, type="b", print.auc=TRUE, col ="green")
+plot.roc (as.numeric(SVMtest.Data$Attrition), as.numeric(svm.prd),main="SVM",lwd=2, type="b", print.auc=TRUE, col ="red")
+plot.roc (as.numeric(RFRaw.test.Data$Attrition), as.numeric(Raw.rf.prd), main="Random Forest",lwd=2, type="b", print.auc=TRUE, col ="seagreen4")
+plot.roc (as.numeric(RFtest.Data$Attrition), as.numeric(rf.prd), main="Raw Data Random Forest",lwd=2, type="b", print.auc=TRUE, col ="seagreen")
+```
+
+
+As we can see, Of all the models xgboost with balanced data gives the best result.
+Accuracy - 0.8903 & AUC - 0.885
+
+Also,the optimizer may find a different local minimum, so the accuracy for the run might be different in different computers.
+
+In my other macbook the same code gave an accuracy of .8974
+
+
+## Conclusion
+
+We tried using different approach to build our model to predict if an employee is going to leave or will continue working in the same company.
+
+The best among all the approach is xgboost (with balanced data) with an accuracy of 0.8903 (it could be different in different system as mentioned in "Result" section)
+
+We used Total Satisfaction, Daily Rate, Monthly Income, Total Working Years and Years with Current Manager to build our model using xgboost (with balanced data ) to predict if the employee will leave the company or not.
+
+
+
